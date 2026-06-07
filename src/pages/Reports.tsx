@@ -12,6 +12,7 @@ import {
   Target,
   Megaphone,
   Route,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   LineChart,
@@ -50,6 +51,8 @@ export default function Reports() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     loadReports();
@@ -57,12 +60,16 @@ export default function Reports() {
 
   const loadReports = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const data = await api.get<ReportSummary[]>('/reports');
-      setReports(data);
-      if (data.length > 0) {
+      setReports(data || []);
+      if (data && data.length > 0) {
         loadReportDetail(data[0].id);
       }
+    } catch (err) {
+      console.error('加载报告列表失败', err);
+      setError(err instanceof Error ? err.message : '加载报告列表失败');
     } finally {
       setIsLoading(false);
     }
@@ -70,9 +77,14 @@ export default function Reports() {
 
   const loadReportDetail = useCallback(async (id: string) => {
     setIsLoadingDetail(true);
+    setDetailError(null);
     try {
       const data = await api.get<WeeklyReport>(`/reports/${id}`);
       setSelectedReport(data);
+    } catch (err) {
+      console.error('加载报告详情失败', err);
+      setDetailError(err instanceof Error ? err.message : '加载报告详情失败');
+      setSelectedReport(null);
     } finally {
       setIsLoadingDetail(false);
     }
@@ -104,6 +116,18 @@ export default function Reports() {
               <div className="h-60 flex items-center justify-center">
                 <LoadingSpinner size="sm" label="加载报告..." />
               </div>
+            ) : error ? (
+              <div className="h-60 flex flex-col items-center justify-center text-red-400">
+                <AlertTriangle className="h-12 w-12 mb-2 text-red-400/50" />
+                <p className="text-sm mb-1">加载失败</p>
+                <p className="text-xs text-red-400/70">{error}</p>
+                <button
+                  onClick={loadReports}
+                  className="mt-3 px-3 py-1.5 rounded-md border border-white/10 bg-white/5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  重试
+                </button>
+              </div>
             ) : reports.length === 0 ? (
               <div className="h-60 flex flex-col items-center justify-center text-white/40">
                 <FileBarChart className="h-12 w-12 mb-2 opacity-30" />
@@ -127,6 +151,19 @@ export default function Reports() {
         {isLoadingDetail ? (
           <div className="glass-card h-96 flex items-center justify-center">
             <LoadingSpinner label="加载报告详情..." />
+          </div>
+        ) : detailError ? (
+          <div className="glass-card h-96 flex flex-col items-center justify-center text-red-400 p-8">
+            <AlertTriangle className="h-16 w-16 mb-3 text-red-400/50" />
+            <p className="text-sm font-medium mb-1">加载报告详情失败</p>
+            <p className="text-xs text-red-400/70 mb-4">{detailError}</p>
+            <button
+              onClick={() => reports.length > 0 && loadReportDetail(reports[0].id)}
+              className="btn-secondary inline-flex items-center gap-2"
+            >
+              <Loader2 className="h-4 w-4" />
+              重试
+            </button>
           </div>
         ) : selectedReport ? (
           <>
@@ -161,25 +198,25 @@ export default function Reports() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <MetricCard
                   title="分类准确率"
-                  current={selectedReport.metrics.classificationAccuracy.current}
-                  yoy={selectedReport.metrics.classificationAccuracy.yoy}
-                  mom={selectedReport.metrics.classificationAccuracy.mom}
+                  current={selectedReport.metrics?.classificationAccuracy?.current ?? 0}
+                  yoy={selectedReport.metrics?.classificationAccuracy?.yoy ?? 0}
+                  mom={selectedReport.metrics?.classificationAccuracy?.mom ?? 0}
                   gradient="eco"
                   icon={<Target className="h-5 w-5" />}
                 />
                 <MetricCard
                   title="收运及时率"
-                  current={selectedReport.metrics.collectionTimeliness.current}
-                  yoy={selectedReport.metrics.collectionTimeliness.yoy}
-                  mom={selectedReport.metrics.collectionTimeliness.mom}
+                  current={selectedReport.metrics?.collectionTimeliness?.current ?? 0}
+                  yoy={selectedReport.metrics?.collectionTimeliness?.yoy ?? 0}
+                  mom={selectedReport.metrics?.collectionTimeliness?.mom ?? 0}
                   gradient="data"
                   icon={<TrendingUp className="h-5 w-5" />}
                 />
                 <MetricCard
                   title="资源化利用率"
-                  current={selectedReport.metrics.resourceConversionRate.current}
-                  yoy={selectedReport.metrics.resourceConversionRate.yoy}
-                  mom={selectedReport.metrics.resourceConversionRate.mom}
+                  current={selectedReport.metrics?.resourceConversionRate?.current ?? 0}
+                  yoy={selectedReport.metrics?.resourceConversionRate?.yoy ?? 0}
+                  mom={selectedReport.metrics?.resourceConversionRate?.mom ?? 0}
                   gradient="recyclable"
                   icon={<Megaphone className="h-5 w-5" />}
                 />
@@ -193,11 +230,11 @@ export default function Reports() {
                   清运成本趋势（近8周）
                 </h3>
                 <div className="flex items-center gap-4 text-xs text-white/50">
-                  <span>本周总费用：<span className="text-white font-medium">{formatMoney(selectedReport.costAnalysis.weeklyTotal)}</span></span>
-                  <span>单位成本：<span className="text-white font-medium">{formatMoney(selectedReport.costAnalysis.unitCost)}/吨</span></span>
+                  <span>本周总费用：<span className="text-white font-medium">{formatMoney(selectedReport.costAnalysis?.weeklyTotal ?? 0)}</span></span>
+                  <span>单位成本：<span className="text-white font-medium">{formatMoney(selectedReport.costAnalysis?.unitCost ?? 0)}/吨</span></span>
                 </div>
               </div>
-              <CostTrendChart data={selectedReport.costAnalysis.trend} />
+              <CostTrendChart data={selectedReport.costAnalysis?.trend || []} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
@@ -206,11 +243,11 @@ export default function Reports() {
                   <Route className="h-5 w-5 text-data-400" />
                   路线优化建议
                 </h3>
-                {selectedReport.recommendations.routeOptimization.length === 0 ? (
+                {(selectedReport.recommendations?.routeOptimization || []).length === 0 ? (
                   <div className="py-10 text-center text-white/40 text-sm">暂无路线优化建议</div>
                 ) : (
                   <ul className="space-y-3">
-                    {selectedReport.recommendations.routeOptimization.map((item, idx) => (
+                    {(selectedReport.recommendations?.routeOptimization || []).map((item, idx) => (
                       <li
                         key={idx}
                         className="flex items-start gap-3 rounded-lg bg-white/[0.03] border border-white/5 p-3.5"
@@ -236,11 +273,11 @@ export default function Reports() {
                   <Megaphone className="h-5 w-5 text-warning-400" />
                   宣传重点
                 </h3>
-                {selectedReport.recommendations.publicityFocus.length === 0 ? (
+                {(selectedReport.recommendations?.publicityFocus || []).length === 0 ? (
                   <div className="py-10 text-center text-white/40 text-sm">暂无宣传重点建议</div>
                 ) : (
                   <ul className="space-y-3">
-                    {selectedReport.recommendations.publicityFocus.map((item, idx) => (
+                    {(selectedReport.recommendations?.publicityFocus || []).map((item, idx) => (
                       <li
                         key={idx}
                         className="flex items-start gap-3 rounded-lg bg-white/[0.03] border border-white/5 p-3.5"

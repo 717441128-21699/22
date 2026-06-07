@@ -75,12 +75,44 @@ router.post('/:id/approve', verifyToken, async (req: Request, res: Response): Pr
     return
   }
 
-  const { step, approved, comment } = req.body
+  let step: 'station' | 'manager' | 'bureau' | undefined
+  let approved: boolean | undefined
+  let comment: string | undefined
+
+  if (typeof req.body.step !== 'undefined' && typeof req.body.approved !== 'undefined') {
+    step = req.body.step
+    approved = !!req.body.approved
+    comment = req.body.comment
+  } else if (typeof req.body.action !== 'undefined') {
+    const action: string = req.body.action
+    comment = req.body.comment
+
+    if (action === 'rejected') {
+      approved = false
+      step = 'station'
+    } else {
+      approved = true
+      const currentStatus = alert.approvalStatus
+      if (action === 'pending_manager' && currentStatus === 'pending_station') {
+        step = 'station'
+      } else if (action === 'pending_bureau' && currentStatus === 'pending_manager') {
+        step = 'manager'
+      } else if (action === 'approved' && currentStatus === 'pending_bureau') {
+        step = 'bureau'
+      } else if (action === 'pending_manager') {
+        step = 'station'
+      } else if (action === 'pending_bureau') {
+        step = 'manager'
+      } else if (action === 'approved') {
+        step = 'bureau'
+      }
+    }
+  }
 
   if (!step || typeof approved === 'undefined') {
     res.status(400).json({
       success: false,
-      error: '缺少必要参数：step 和 approved',
+      error: '缺少必要参数：需要 step+approved 或 action',
     })
     return
   }
@@ -94,7 +126,7 @@ router.post('/:id/approve', verifyToken, async (req: Request, res: Response): Pr
     return
   }
 
-  const result = approveAlert(memoryDb, req.params.id, step, !!approved, comment, user.id)
+  const result = approveAlert(memoryDb, req.params.id, step, approved, comment, user.id)
 
   if (!result) {
     res.status(400).json({

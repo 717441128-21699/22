@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -108,8 +108,8 @@ function ApprovalProgress({ currentStatus }: ApprovalProgressProps) {
           const isLast = idx === APPROVAL_STEPS.length - 1;
 
           return (
-            <>
-              <div key={step.key} className="flex flex-col items-center gap-2 flex-1">
+            <Fragment key={step.key}>
+              <div className="flex flex-col items-center gap-2 flex-1">
                 <div
                   className={cn(
                     'flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all',
@@ -141,7 +141,6 @@ function ApprovalProgress({ currentStatus }: ApprovalProgressProps) {
               </div>
               {!isLast && (
                 <div
-                  key={`line-${step.key}`}
                   className={cn(
                     'flex-1 h-0.5 mx-2 -mt-7 rounded-full',
                     idx < currentIdx || isApproved
@@ -150,7 +149,7 @@ function ApprovalProgress({ currentStatus }: ApprovalProgressProps) {
                   )}
                 />
               )}
-            </>
+            </Fragment>
           );
         })}
         <div className="flex flex-col items-center gap-2 flex-1">
@@ -205,8 +204,12 @@ function ApprovalActions({
 }: ApprovalActionProps) {
   const [comment, setComment] = useState('');
 
-  const canDoStation = currentStatus === 'pending_station' && (userRole === 'regional' || userRole === 'municipal');
-  const canDoManager = currentStatus === 'pending_manager' && (userRole === 'municipal' || userRole === 'provincial');
+  const canDoStation =
+    currentStatus === 'pending_station' &&
+    (userRole === 'regional' || userRole === 'municipal' || userRole === 'provincial' || userRole === 'national');
+  const canDoManager =
+    currentStatus === 'pending_manager' &&
+    (userRole === 'municipal' || userRole === 'provincial' || userRole === 'national');
   const canDoBureau =
     currentStatus === 'pending_bureau' &&
     (userRole === 'municipal' || userRole === 'provincial' || userRole === 'national');
@@ -307,16 +310,10 @@ export default function AlertApproval() {
     if (!id) return;
     setIsSubmitting(true);
     try {
-      const nextStep = approved
-        ? step === 'pending_station'
-          ? 'pending_manager'
-          : step === 'pending_manager'
-          ? 'pending_bureau'
-          : 'approved'
-        : 'rejected';
-
+      const stepKey = step.replace('pending_', '') as 'station' | 'manager' | 'bureau';
       await api.post(`/alerts/${id}/approve`, {
-        action: nextStep,
+        step: stepKey,
+        approved,
         comment,
       });
 

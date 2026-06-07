@@ -39,6 +39,12 @@ import { useRealtime } from '../hooks/useRealtime';
 import type { MetricsOverview, HeatmapItem, DailyMetrics, Alert } from '../../shared/types';
 import { cn } from '@/lib/utils';
 
+interface ProvinceStationItem {
+  code: string;
+  name: string;
+  dailyMetrics: DailyMetrics[];
+}
+
 interface ProvinceStationData {
   provinceCode: string;
   provinceName: string;
@@ -83,7 +89,9 @@ function ProvinceDrillDown({ code, name, onClose }: ProvinceDrillDownProps) {
       setError(null);
       try {
         const result = await api.get<ProvinceStationData>(`/heatmap/${code}/stations`);
-        if (!cancelled) setData(result);
+        if (!cancelled) {
+          setData(result);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : '加载失败');
       } finally {
@@ -94,13 +102,13 @@ function ProvinceDrillDown({ code, name, onClose }: ProvinceDrillDownProps) {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, name]);
 
   const lineChartData = useMemo(() => {
     if (!data) return [];
     return data.dailyData.map((d) => ({
       date: d.date.slice(5),
-      total: Object.values(d.wasteByType).reduce((a, b) => a + b, 0),
+      total: d.wasteByType.recyclable + d.wasteByType.kitchen + d.wasteByType.hazardous + d.wasteByType.other,
     }));
   }, [data]);
 

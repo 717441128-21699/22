@@ -166,9 +166,10 @@ export interface WeeklyReport {
   regionName: string;
   generatedAt: string;
   metrics: {
-    classificationAccuracy: { current: number; yoy: number; mom: number };
-    collectionTimeliness: { current: number; yoy: number; mom: number };
-    resourceConversionRate: { current: number; yoy: number; mom: number };
+    classificationAccuracy: { current: number; lastWeek?: number; lastYear?: number; yoy?: number; mom?: number };
+    collectionTimeliness: { current: number; lastWeek?: number; lastYear?: number; yoy?: number; mom?: number };
+    resourceConversionRate: { current: number; lastWeek?: number; lastYear?: number; yoy?: number; mom?: number };
+    wasteByTypeTrend?: { date: string; recyclable: number; kitchen: number; hazardous: number; other: number }[];
   };
   costAnalysis: {
     weeklyTotal: number;

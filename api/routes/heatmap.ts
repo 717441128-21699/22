@@ -49,28 +49,79 @@ router.get('/:code/stations', verifyToken, async (req: Request, res: Response): 
     return
   }
 
-  const allowedCodes = filterByRegion(provinceCode, user, memoryDb)
-  const stations = memoryDb.regions.filter(
-    (r) => r.parentCode === provinceCode || allowedCodes.includes(r.code),
-  )
+  const province = memoryDb.regions.find((r) => r.code === provinceCode)
+  if (!province) {
+    res.status(404).json({
+      success: false,
+      error: '省份不存在',
+    })
+    return
+  }
 
-  const result = stations.map((station) => {
-    const metrics = memoryDb.dailyMetrics[station.code] || []
+  const cities = memoryDb.regions.filter((r) => r.parentCode === provinceCode)
+  const allRegionCodes = [provinceCode, ...cities.map((c) => c.code)]
+
+  const dateMap = new Map<string, {
+    accuracy: number[]
+    timeliness: number[]
+    resource: number[]
+    wasteByType: { recyclable: number; kitchen: number; hazardous: number; other: number }
+  }>()
+
+  for (const code of allRegionCodes) {
+    const metrics = memoryDb.dailyMetrics[code] || []
     const sorted = [...metrics].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     const last7Days = sorted.slice(0, 7)
 
-    return {
-      code: station.code,
-      name: station.name,
-      dailyMetrics: last7Days.map((m) => ({
-        date: m.date,
-        classificationAccuracy: m.classificationAccuracy,
-        collectionTimeliness: m.collectionTimeliness,
-        resourceConversionRate: m.resourceConversionRate,
-        wasteByType: m.wasteByType,
-      })),
+    for (const m of last7Days) {
+      if (!dateMap.has(m.date)) {
+        dateMap.set(m.date, {
+          accuracy: [],
+          timeliness: [],
+          resource: [],
+          wasteByType: { recyclable: 0, kitchen: 0, hazardous: 0, other: 0 },
+        })
+      }
+      const entry = dateMap.get(m.date)!
+      entry.accuracy.push(m.classificationAccuracy)
+      entry.timeliness.push(m.collectionTimeliness)
+      entry.resource.push(m.resourceConversionRate)
+      entry.wasteByType.recyclable += m.wasteByType.recyclable
+      entry.wasteByType.kitchen += m.wasteByType.kitchen
+      entry.wasteByType.hazardous += m.wasteByType.hazardous
+      entry.wasteByType.other += m.wasteByType.other
     }
-  })
+  }
+
+  function avg(nums: number[]): number {
+    if (nums.length === 0) return 0
+    const sum = nums.reduce((a, b) => a + b, 0)
+    return parseFloat((sum / nums.length).toFixed(1))
+  }
+
+  const dailyData: DailyMetrics[] = Array.from(dateMap.entries())
+    .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+    .map(([date, entry]) => ({
+      date,
+      classificationAccuracy: avg(entry.accuracy),
+      collectionTimeliness: avg(entry.timeliness),
+      resourceConversionRate: avg(entry.resource),
+      wasteByType: entry.wasteByType,
+    }))
+
+  const typeTotals = {
+    recyclable: dailyData.reduce((s, d) => s + d.wasteByType.recyclable, 0),
+    kitchen: dailyData.reduce((s, d) => s + d.wasteByType.kitchen, 0),
+    hazardous: dailyData.reduce((s, d) => s + d.wasteByType.hazardous, 0),
+    other: dailyData.reduce((s, d) => s + d.wasteByType.other, 0),
+  }
+
+  const result = {
+    provinceCode: province.code,
+    provinceName: province.name,
+    dailyData,
+    typeTotals,
+  }
 
   res.json({
     success: true,

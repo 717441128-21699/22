@@ -110,6 +110,12 @@ export function generateWeeklyReport(regionCode: string, db: MemoryDb): WeeklyRe
   const curAcc = avg(current.accuracy);
   const curTime = avg(current.timeliness);
   const curRes = avg(current.resource);
+  const prevAcc = avg(prev.accuracy);
+  const prevTime = avg(prev.timeliness);
+  const prevRes = avg(prev.resource);
+  const yoyAcc = avg(yoy.accuracy);
+  const yoyTime = avg(yoy.timeliness);
+  const yoyRes = avg(yoy.resource);
 
   const costPerTon = 450;
   const weeklyTotal = Math.round(current.totalWaste * costPerTon);
@@ -125,6 +131,36 @@ export function generateWeeklyReport(regionCode: string, db: MemoryDb): WeeklyRe
     trend.push({
       date: d.toISOString().slice(0, 10),
       cost: Math.round(agg.totalWaste * costPerTon),
+    });
+  }
+
+  const wasteByTypeTrend: { date: string; recyclable: number; kitchen: number; hazardous: number; other: number }[] = [];
+  for (const dateStr of currentDates) {
+    const dateMetrics: DailyMetrics[] = [];
+    const childCodes: string[] = [region.code];
+    if (region.level === 'province' || region.level === 'national') {
+      for (const r of db.regions) {
+        if (r.parentCode === region.code) childCodes.push(r.code);
+      }
+    }
+    if (region.level === 'national') {
+      for (const r of db.regions) {
+        if (r.level === 'city') childCodes.push(r.code);
+      }
+    }
+    for (const code of childCodes) {
+      const m = db.dailyMetrics[code];
+      if (m) {
+        const found = m.find((x) => x.date === dateStr);
+        if (found) dateMetrics.push(found);
+      }
+    }
+    wasteByTypeTrend.push({
+      date: dateStr,
+      recyclable: dateMetrics.reduce((s, m) => s + m.wasteByType.recyclable, 0),
+      kitchen: dateMetrics.reduce((s, m) => s + m.wasteByType.kitchen, 0),
+      hazardous: dateMetrics.reduce((s, m) => s + m.wasteByType.hazardous, 0),
+      other: dateMetrics.reduce((s, m) => s + m.wasteByType.other, 0),
     });
   }
 
@@ -180,19 +216,26 @@ export function generateWeeklyReport(regionCode: string, db: MemoryDb): WeeklyRe
     metrics: {
       classificationAccuracy: {
         current: curAcc,
-        yoy: calcChange(curAcc, avg(yoy.accuracy)),
-        mom: calcChange(curAcc, avg(prev.accuracy)),
+        lastWeek: prevAcc,
+        lastYear: yoyAcc,
+        yoy: calcChange(curAcc, yoyAcc),
+        mom: calcChange(curAcc, prevAcc),
       },
       collectionTimeliness: {
         current: curTime,
-        yoy: calcChange(curTime, avg(yoy.timeliness)),
-        mom: calcChange(curTime, avg(prev.timeliness)),
+        lastWeek: prevTime,
+        lastYear: yoyTime,
+        yoy: calcChange(curTime, yoyTime),
+        mom: calcChange(curTime, prevTime),
       },
       resourceConversionRate: {
         current: curRes,
-        yoy: calcChange(curRes, avg(yoy.resource)),
-        mom: calcChange(curRes, avg(prev.resource)),
+        lastWeek: prevRes,
+        lastYear: yoyRes,
+        yoy: calcChange(curRes, yoyRes),
+        mom: calcChange(curRes, prevRes),
       },
+      wasteByTypeTrend,
     },
     costAnalysis: {
       weeklyTotal,

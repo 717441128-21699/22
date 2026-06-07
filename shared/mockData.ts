@@ -153,6 +153,7 @@ export function generateAlerts(): Alert[] {
       id: 'ALT-001', level: 1, type: 'accuracy', regionCode: '440300', regionName: '深圳市',
       triggeredAt: new Date(Date.now() - 86400_000 * 3).toISOString(),
       currentValue: 67.3, threshold: 70, consecutiveDays: 3, status: 'active',
+      approvalStatus: 'pending_station',
       responsiblePerson: '张建国',
       pushRecords: [
         { pushedAt: new Date(Date.now() - 86400_000 * 3).toISOString(), receiver: '张建国', confirmed: true },
@@ -175,6 +176,7 @@ export function generateAlerts(): Alert[] {
       id: 'ALT-003', level: 1, type: 'accuracy', regionCode: '320500', regionName: '苏州市',
       triggeredAt: new Date(Date.now() - 86400_000 * 4).toISOString(),
       currentValue: 68.9, threshold: 70, consecutiveDays: 4, status: 'processing',
+      approvalStatus: 'pending_station',
       responsiblePerson: '刘芳',
       pushRecords: [
         { pushedAt: new Date(Date.now() - 86400_000 * 4).toISOString(), receiver: '刘芳', confirmed: true },
@@ -196,6 +198,7 @@ export function generateAlerts(): Alert[] {
       id: 'ALT-005', level: 1, type: 'timeliness', regionCode: '370200', regionName: '青岛市',
       triggeredAt: new Date(Date.now() - 86400_000 * 2).toISOString(),
       currentValue: 77.5, threshold: 80, consecutiveDays: 2, status: 'active',
+      approvalStatus: 'pending_station',
       responsiblePerson: '赵强',
       pushRecords: [
         { pushedAt: new Date(Date.now() - 86400_000 * 2).toISOString(), receiver: '赵强', confirmed: true },
@@ -213,6 +216,15 @@ export function generateWeeklyReports(): WeeklyReport[] {
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - 6);
     const weekNum = Math.ceil((endDate.getDate() + new Date(endDate.getFullYear(), endDate.getMonth(), 1).getDay()) / 7);
+    const curAcc = randRange(78, 85, 1);
+    const curTime = randRange(82, 92, 1);
+    const curRes = randRange(45, 58, 1);
+    const prevAcc = randRange(78, 85, 1);
+    const prevTime = randRange(82, 92, 1);
+    const prevRes = randRange(45, 58, 1);
+    const yoyAcc = randRange(78, 85, 1);
+    const yoyTime = randRange(82, 92, 1);
+    const yoyRes = randRange(45, 58, 1);
     reports.push({
       id: `RPT-${String(i + 1).padStart(3, '0')}`,
       week: `${endDate.getFullYear()}年第${weekNum}周`,
@@ -222,9 +234,38 @@ export function generateWeeklyReports(): WeeklyReport[] {
       regionName: '全国',
       generatedAt: new Date(endDate.getTime() + 3600_000 * 8).toISOString(),
       metrics: {
-        classificationAccuracy: { current: randRange(78, 85, 1), yoy: randRange(-3, 5, 1), mom: randRange(-2, 3, 1) },
-        collectionTimeliness: { current: randRange(82, 92, 1), yoy: randRange(-2, 4, 1), mom: randRange(-1, 2, 1) },
-        resourceConversionRate: { current: randRange(45, 58, 1), yoy: randRange(2, 8, 1), mom: randRange(0, 3, 1) },
+        classificationAccuracy: {
+          current: curAcc,
+          lastWeek: prevAcc,
+          lastYear: yoyAcc,
+          yoy: parseFloat(((curAcc - yoyAcc) / yoyAcc * 100).toFixed(1)),
+          mom: parseFloat(((curAcc - prevAcc) / prevAcc * 100).toFixed(1)),
+        },
+        collectionTimeliness: {
+          current: curTime,
+          lastWeek: prevTime,
+          lastYear: yoyTime,
+          yoy: parseFloat(((curTime - yoyTime) / yoyTime * 100).toFixed(1)),
+          mom: parseFloat(((curTime - prevTime) / prevTime * 100).toFixed(1)),
+        },
+        resourceConversionRate: {
+          current: curRes,
+          lastWeek: prevRes,
+          lastYear: yoyRes,
+          yoy: parseFloat(((curRes - yoyRes) / yoyRes * 100).toFixed(1)),
+          mom: parseFloat(((curRes - prevRes) / prevRes * 100).toFixed(1)),
+        },
+        wasteByTypeTrend: Array.from({ length: 7 }, (_, idx) => {
+          const d = new Date(startDate);
+          d.setDate(d.getDate() + idx);
+          return {
+            date: d.toISOString().slice(0, 10),
+            recyclable: randRange(2000, 5000),
+            kitchen: randRange(5000, 12000),
+            hazardous: randRange(100, 800),
+            other: randRange(3000, 8000),
+          };
+        }),
       },
       costAnalysis: {
         weeklyTotal: randRange(120000000, 180000000),
