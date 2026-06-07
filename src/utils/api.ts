@@ -50,7 +50,8 @@ function getHeaders(initHeaders?: HeadersInit): Headers {
     headers.set('Content-Type', 'application/json');
   }
 
-  const token = useAuthStore.getState().token;
+  const rawToken = useAuthStore.getState().token;
+  const token = rawToken ? rawToken.replace(/^Bearer\s+/i, '') : '';
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }

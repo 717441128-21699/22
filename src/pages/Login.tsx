@@ -13,6 +13,11 @@ import { useAuthStore } from '../store/authStore';
 import { api } from '../utils/api';
 import type { User as UserType } from '../../shared/types';
 
+interface LoginResponse {
+  user: UserType;
+  token: string;
+}
+
 export default function Login() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('123456');
@@ -31,18 +36,15 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 600));
+      const result = await api.post<LoginResponse>('/auth/login', {
+        username,
+        password,
+      });
 
-      const mockUser: UserType = {
-        id: 'U001',
-        username: 'admin',
-        name: '国家管理员',
-        role: 'national',
-        regionCode: '000000',
-        regionName: '全国',
-      };
+      const rawToken = result.token || '';
+      const cleanToken = rawToken.replace(/^Bearer\s+/i, '');
 
-      login(mockUser, 'mock-token');
+      login(result.user, cleanToken);
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败');

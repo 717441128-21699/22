@@ -1,53 +1,80 @@
 import { Router, type Request, type Response } from 'express'
-import { generateDailyMetrics } from '../../shared/mockData.js'
-import type { HeatmapItem } from '../../shared/types.js'
-
-const PROVINCES: [string, string][] = [
-  ['110000', '北京市'], ['120000', '天津市'], ['130000', '河北省'], ['140000', '山西省'],
-  ['150000', '内蒙古自治区'], ['210000', '辽宁省'], ['220000', '吉林省'], ['230000', '黑龙江省'],
-  ['310000', '上海市'], ['320000', '江苏省'], ['330000', '浙江省'], ['340000', '安徽省'],
-  ['350000', '福建省'], ['360000', '江西省'], ['370000', '山东省'], ['410000', '河南省'],
-  ['420000', '湖北省'], ['430000', '湖南省'], ['440000', '广东省'], ['450000', '广西壮族自治区'],
-  ['460000', '海南省'], ['500000', '重庆市'], ['510000', '四川省'], ['520000', '贵州省'],
-  ['530000', '云南省'], ['540000', '西藏自治区'], ['610000', '陕西省'], ['620000', '甘肃省'],
-  ['630000', '青海省'], ['640000', '宁夏回族自治区'], ['650000', '新疆维吾尔自治区'],
-  ['710000', '台湾省'], ['810000', '香港特别行政区'], ['820000', '澳门特别行政区'],
-]
-
-function seededRandom(seed: number) {
-  let s = seed
-  return () => {
-    s = (s * 9301 + 49297) % 233280
-    return s / 233280
-  }
-}
-
-function randRange(seed: number, min: number, max: number, decimals = 0): number {
-  const rand = seededRandom(seed)
-  const val = min + rand() * (max - min)
-  return decimals > 0 ? parseFloat(val.toFixed(decimals)) : Math.round(val)
-}
+import { memoryDb } from '../db/memoryDb.js'
+import { verifyToken, isRegionAccessible, filterByRegion } from '../middleware/auth.js'
+import type { HeatmapItem, DailyMetrics, User } from '../../shared/types.js'
 
 const router = Router()
 
+function getLatestMetrics(code: string): DailyMetrics | null {
+  const metrics = memoryDb.dailyMetrics[code]
+  if (!metrics || metrics.length === 0) return null
+  const sorted = [...metrics].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  return sorted[0]
+}
+
 router.get('/', async (req: Request, res: Response): Promise<void> => {
-  const data: HeatmapItem[] = PROVINCES.map(([code, name], idx) => {
-    const seed = parseInt(code, 10) + idx
-    const daily = generateDailyMetrics(code, 1)[0]
-    const totalWaste = Object.values(daily.wasteByType).reduce((a, b) => a + b, 0)
+  const provinces = memoryDb.regions.filter((r) => r.level === 'province')
+
+  const data: HeatmapItem[] = provinces.map((region) => {
+    const latest = getLatestMetrics(region.code)
+    const totalWaste = latest
+      ? Object.values(latest.wasteByType).reduce((a, b) => a + b, 0)
+      : 0
+
     return {
-      code,
-      name,
-      value: randRange(seed, 50, 500) + totalWaste,
-      accuracy: daily.classificationAccuracy,
-      timeliness: daily.collectionTimeliness,
-      resourceRate: daily.resourceConversionRate,
+      code: region.code,
+      name: region.name,
+      value: totalWaste,
+      accuracy: latest?.classificationAccuracy ?? 0,
+      timeliness: latest?.collectionTimeliness ?? 0,
+      resourceRate: latest?.resourceConversionRate ?? 0,
     }
   })
 
   res.json({
     success: true,
     data,
+  })
+})
+
+router.get('/:code/stations', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as Request & { user: User }).user
+  const provinceCode = req.params.code
+
+  if (!isRegionAccessible(provinceCode, user, memoryDb)) {
+    res.status(403).json({
+      success: false,
+      error: '权限不足，无法访问该区域数据',
+    })
+    return
+  }
+
+  const allowedCodes = filterByRegion(provinceCode, user, memoryDb)
+  const stations = memoryDb.regions.filter(
+    (r) => r.parentCode === provinceCode || allowedCodes.includes(r.code),
+  )
+
+  const result = stations.map((station) => {
+    const metrics = memoryDb.dailyMetrics[station.code] || []
+    const sorted = [...metrics].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    const last7Days = sorted.slice(0, 7)
+
+    return {
+      code: station.code,
+      name: station.name,
+      dailyMetrics: last7Days.map((m) => ({
+        date: m.date,
+        classificationAccuracy: m.classificationAccuracy,
+        collectionTimeliness: m.collectionTimeliness,
+        resourceConversionRate: m.resourceConversionRate,
+        wasteByType: m.wasteByType,
+      })),
+    }
+  })
+
+  res.json({
+    success: true,
+    data: result,
   })
 })
 

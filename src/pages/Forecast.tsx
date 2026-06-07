@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -14,6 +14,7 @@ import {
   Factory,
   RefreshCw,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import {
   AreaChart,
   Area,
@@ -25,11 +26,12 @@ import {
   ReferenceLine,
   Legend,
 } from 'recharts';
-import type { DragEvent, ChangeEvent } from 'react';
+import type { ChangeEvent } from 'react';
 import { api } from '../utils/api';
 import { formatNumber, formatDate, formatMoney } from '../utils/format';
-import { cn } from '../lib/utils';
+import { cn } from '@/lib/utils';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageBreadcrumb from '../components/PageBreadcrumb';
 import type { ForecastResult, ForecastDay, ExtractedPlan, ForecastRecommendation } from '../../shared/types';
 
 const TYPE_COLORS = {
@@ -48,13 +50,13 @@ const TYPE_LABELS = {
 
 export default function Forecast() {
   const [file, setFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ForecastResult | null>(null);
+  const [parsedPreview, setParsedPreview] = useState<string[][] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = useCallback((selectedFile: File) => {
+  const handleFileSelect = useCallback(async (selectedFile: File) => {
     setError(null);
     const validTypes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -77,29 +79,27 @@ export default function Forecast() {
     }
 
     setFile(selectedFile);
-  }, []);
+    setParsedPreview(null);
 
-  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buffer = e.target?.result as ArrayBuffer;
+          const uint8 = new Uint8Array(buffer);
+          const workbook = XLSX.read(uint8, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json<string[]>(firstSheet, { header: 1 });
+          setParsedPreview(jsonData.slice(0, 5) as string[][]);
+        } catch {
+          // ignore parse errors for preview
+        }
+      };
+      reader.readAsArrayBuffer(selectedFile);
+    } catch {
+      // ignore
+    }
   }, []);
-
-  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragging(false);
-      const droppedFile = e.dataTransfer.files?.[0];
-      if (droppedFile) {
-        handleFileSelect(droppedFile);
-      }
-    },
-    [handleFileSelect]
-  );
 
   const handleInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
@@ -136,6 +136,10 @@ export default function Forecast() {
     setError(null);
     setResult(null);
     setFile(null);
+    setParsedPreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
 
     try {
       const data = await api.get<ForecastResult>('/forecast/sample');
@@ -151,148 +155,169 @@ export default function Forecast() {
     setFile(null);
     setResult(null);
     setError(null);
+    setParsedPreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   }, []);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
-      <div className="lg:col-span-4 space-y-4">
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-eco-300" />
-              宣传方案上传
-            </h2>
-            <button
-              onClick={handleReset}
-              className="text-xs text-white/50 hover:text-white/80 flex items-center gap-1 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              重置
-            </button>
-          </div>
-
-          <div
-            className={cn(
-              'relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 cursor-pointer',
-              isDragging
-                ? 'border-eco-400 bg-eco-400/10'
-                : 'border-white/15 bg-white/[0.02] hover:border-eco-400/50 hover:bg-white/[0.04]'
-            )}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleInputChange}
-            />
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-14 w-14 rounded-full bg-gradient-to-br from-eco-500/30 to-eco-400/10 flex items-center justify-center">
-                <Upload className="h-7 w-7 text-eco-300" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white">
-                  {file ? file.name : '拖拽文件到此处，或点击上传'}
-                </p>
-                <p className="text-xs text-white/40 mt-1">支持 .xlsx / .xls 格式，最大 10MB</p>
-              </div>
-            </div>
-          </div>
-
-          {error && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 p-3">
-              <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-300">{error}</p>
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-4">
-            <button
-              onClick={handleUpload}
-              disabled={!file || isLoading}
-              className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4" />
-              )}
-              解析上传
-            </button>
-            <button
-              onClick={handleLoadSample}
-              disabled={isLoading}
-              className="btn-secondary flex items-center gap-2"
-            >
-              <Sparkles className="h-4 w-4" />
-              示例数据
-            </button>
-          </div>
-        </div>
-
-        {result?.extractedPlan && (
-          <PlanInfoCard plan={result.extractedPlan} />
-        )}
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <PageBreadcrumb items={[{ label: '趋势预测' }]} />
       </div>
 
-      <div className="lg:col-span-8 space-y-4 lg:space-y-6">
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-data-400" />
-              未来7天垃圾产量预测
-            </h2>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="badge badge-level-2">
-                <span className="w-2 h-2 rounded-full bg-red-400 mr-1.5" />
-                超量预警
-              </span>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+        <div className="lg:col-span-4 space-y-4">
+          <div className="glass-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-eco-300" />
+                宣传方案上传
+              </h2>
+              <button
+                onClick={handleReset}
+                className="text-xs text-white/50 hover:text-white/80 flex items-center gap-1 transition-colors"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                重置
+              </button>
+            </div>
+
+            <div
+              className={cn(
+                'relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 cursor-pointer',
+                'border-white/15 bg-white/[0.02] hover:border-eco-400/50 hover:bg-white/[0.04]'
+              )}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleInputChange}
+              />
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-14 w-14 rounded-full bg-gradient-to-br from-eco-500/30 to-eco-400/10 flex items-center justify-center">
+                  <Upload className="h-7 w-7 text-eco-300" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">
+                    {file ? file.name : '点击上传Excel文件'}
+                  </p>
+                  <p className="text-xs text-white/40 mt-1">支持 .xlsx / .xls 格式，最大 10MB</p>
+                </div>
+              </div>
+            </div>
+
+            {parsedPreview && parsedPreview.length > 0 && (
+              <div className="mt-4 rounded-lg bg-white/[0.02] border border-white/10 p-3">
+                <p className="text-xs text-white/50 mb-2">文件预览（前5行）：</p>
+                <div className="overflow-x-auto max-h-32 overflow-y-auto">
+                  <table className="text-xs w-full">
+                    <tbody>
+                      {parsedPreview.map((row, idx) => (
+                        <tr key={idx} className="border-b border-white/5 last:border-0">
+                          {row.map((cell, cidx) => (
+                            <td key={cidx} className="px-2 py-1.5 text-white/70 whitespace-nowrap">
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 p-3">
+                <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-300">{error}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={handleUpload}
+                disabled={!file || isLoading}
+                className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                解析上传
+              </button>
+              <button
+                onClick={handleLoadSample}
+                disabled={isLoading}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <Sparkles className="h-4 w-4" />
+                示例数据
+              </button>
             </div>
           </div>
 
-          {isLoading ? (
-            <div className="h-80 flex items-center justify-center">
-              <LoadingSpinner label="正在生成预测..." />
-            </div>
-          ) : result ? (
-            <ForecastChart data={result.prediction.slice(0, 7)} />
-          ) : (
-            <div className="h-80 flex flex-col items-center justify-center text-white/40">
-              <FileSpreadsheet className="h-16 w-16 mb-3 opacity-30" />
-              <p className="text-sm">上传宣传方案或加载示例数据后查看预测结果</p>
-            </div>
-          )}
+          {result?.extractedPlan && <PlanInfoCard plan={result.extractedPlan} />}
         </div>
 
-        <div className="glass-card p-5">
-          <h2 className="text-base font-semibold text-white flex items-center gap-2 mb-4">
-            <Lightbulb className="h-5 w-5 text-warning-400" />
-            优化推荐
-          </h2>
+        <div className="lg:col-span-8 space-y-4 lg:space-y-6">
+          <div className="glass-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-data-400" />
+                未来7天垃圾产量预测
+              </h2>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="badge badge-level-2">
+                  <span className="w-2 h-2 rounded-full bg-red-400 mr-1.5" />
+                  超量预警
+                </span>
+              </div>
+            </div>
 
-          {isLoading ? (
-            <div className="h-40 flex items-center justify-center">
-              <LoadingSpinner size="sm" label="加载推荐..." />
-            </div>
-          ) : result && result.recommendations.length > 0 ? (
-            <div className="space-y-3">
-              {result.recommendations.map((rec, idx) => (
-                <RecommendationItem key={idx} rec={rec} index={idx} />
-              ))}
-            </div>
-          ) : (
-            <div className="h-40 flex flex-col items-center justify-center text-white/40">
-              <Lightbulb className="h-12 w-12 mb-2 opacity-30" />
-              <p className="text-sm">暂无推荐</p>
-            </div>
-          )}
+            {isLoading ? (
+              <div className="h-80 flex items-center justify-center">
+                <LoadingSpinner label="正在生成预测..." />
+              </div>
+            ) : result ? (
+              <ForecastChart data={result.prediction.slice(0, 7)} />
+            ) : (
+              <div className="h-80 flex flex-col items-center justify-center text-white/40">
+                <FileSpreadsheet className="h-16 w-16 mb-3 opacity-30" />
+                <p className="text-sm">上传宣传方案或加载示例数据后查看预测结果</p>
+              </div>
+            )}
+          </div>
+
+          <div className="glass-card p-5">
+            <h2 className="text-base font-semibold text-white flex items-center gap-2 mb-4">
+              <Lightbulb className="h-5 w-5 text-warning-400" />
+              优化推荐
+            </h2>
+
+            {isLoading ? (
+              <div className="h-40 flex items-center justify-center">
+                <LoadingSpinner size="sm" label="加载推荐..." />
+              </div>
+            ) : result && result.recommendations.length > 0 ? (
+              <div className="space-y-3">
+                {result.recommendations.map((rec, idx) => (
+                  <RecommendationItem key={idx} rec={rec} index={idx} />
+                ))}
+              </div>
+            ) : (
+              <div className="h-40 flex flex-col items-center justify-center text-white/40">
+                <Lightbulb className="h-12 w-12 mb-2 opacity-30" />
+                <p className="text-sm">暂无推荐</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -366,18 +391,30 @@ function InfoItem({
 }
 
 function ForecastChart({ data }: { data: ForecastDay[] }) {
-  const chartData = data.map((d) => ({
-    date: d.date.slice(5),
-    recyclable: d.recyclable,
-    kitchen: d.kitchen,
-    hazardous: d.hazardous,
-    other: d.other,
-    total: d.total,
-    capacity: d.processingCapacity,
-    exceeds: d.exceedsCapacity,
-  }));
+  const chartData = useMemo(
+    () =>
+      data.map((d) => ({
+        date: d.date.slice(5),
+        recyclable: d.recyclable,
+        kitchen: d.kitchen,
+        hazardous: d.hazardous,
+        other: d.other,
+        total: d.total,
+        capacity: d.processingCapacity,
+        exceeds: d.exceedsCapacity,
+      })),
+    [data]
+  );
 
-  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
+  const CustomTooltip = ({
+    active,
+    payload,
+    label,
+  }: {
+    active?: boolean;
+    payload?: Array<{ name: string; value: number; color: string }>;
+    label?: string;
+  }) => {
     if (!active || !payload || !payload.length) return null;
     const total = payload.find((p) => p.name === 'total');
     const capacity = payload.find((p) => p.name === 'capacity');
@@ -392,7 +429,9 @@ function ForecastChart({ data }: { data: ForecastDay[] }) {
             <div key={entry.name} className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: entry.color }} />
-                <span className="text-white/70">{TYPE_LABELS[entry.name as keyof typeof TYPE_LABELS]}</span>
+                <span className="text-white/70">
+                  {TYPE_LABELS[entry.name as keyof typeof TYPE_LABELS]}
+                </span>
               </span>
               <span className="font-mono text-white">{formatNumber(entry.value)} 吨</span>
             </div>
@@ -400,11 +439,15 @@ function ForecastChart({ data }: { data: ForecastDay[] }) {
         <div className="border-t border-white/10 pt-2 space-y-1">
           <div className="flex items-center justify-between gap-3">
             <span className="text-white/70">总量</span>
-            <span className="font-mono font-medium text-white">{total ? formatNumber(total.value) : 0} 吨</span>
+            <span className="font-mono font-medium text-white">
+              {total ? formatNumber(total.value) : 0} 吨
+            </span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-white/70">处理能力</span>
-            <span className="font-mono text-white/80">{capacity ? formatNumber(capacity.value) : 0} 吨</span>
+            <span className="font-mono text-white/80">
+              {capacity ? formatNumber(capacity.value) : 0} 吨
+            </span>
           </div>
           {exceeds && (
             <div className="flex items-center gap-1.5 text-red-400 pt-1">
@@ -507,7 +550,14 @@ function ForecastChart({ data }: { data: ForecastDay[] }) {
               const { cx, cy, payload } = props;
               if (payload.exceeds) {
                 return (
-                  <circle cx={cx} cy={cy} r={5} fill="#EF4444" stroke="white" strokeWidth={1.5} />
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={6}
+                    fill="#EF4444"
+                    stroke="white"
+                    strokeWidth={2}
+                  />
                 );
               }
               return null;
@@ -550,7 +600,8 @@ function RecommendationItem({ rec, index }: { rec: ForecastRecommendation; index
   const badgeLabel = isFrequency ? '收运频次调整' : '增开处理线';
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors animate-fadeInUp"
+    <div
+      className="rounded-xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors animate-fadeInUp"
       style={{ animationDelay: `${index * 0.08}s` }}
     >
       <div className="flex items-start gap-3">

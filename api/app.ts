@@ -19,6 +19,7 @@ import monitorRoutes from './routes/monitor.js'
 import forecastRoutes from './routes/forecast.js'
 import reportsRoutes from './routes/reports.js'
 import usersRoutes from './routes/users.js'
+import realtimeRoutes from './routes/realtime.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -39,9 +40,11 @@ app.use('/api/metrics', metricsRoutes)
 app.use('/api/heatmap', heatmapRoutes)
 app.use('/api/alerts', alertsRoutes)
 app.use('/api/monitor', monitorRoutes)
+app.use('/api/forecast/upload', express.raw({ type: ['multipart/form-data', 'application/octet-stream', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], limit: '10mb' }))
 app.use('/api/forecast', forecastRoutes)
 app.use('/api/reports', reportsRoutes)
 app.use('/api/users', usersRoutes)
+app.use('/api/realtime', realtimeRoutes)
 
 /**
  * health

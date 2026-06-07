@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express'
-import { MOCK_USERS } from '../../shared/mockData.js'
+import { memoryDb } from '../db/memoryDb.js'
+import { createToken, verifyToken } from '../middleware/auth.js'
+import type { User } from '../../shared/types.js'
 
 const router = Router()
 
@@ -16,7 +18,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     return
   }
 
-  const user = MOCK_USERS.find((u) => u.username === username)
+  const user = memoryDb.users.find((u) => u.username === username)
 
   if (!user) {
     res.status(401).json({
@@ -34,12 +36,22 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     return
   }
 
+  const token = createToken(user)
+
   res.json({
     success: true,
     data: {
       user,
-      token: `mock-token-${user.id}-${Date.now()}`,
+      token,
     },
+  })
+})
+
+router.get('/me', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as Request & { user: User }).user
+  res.json({
+    success: true,
+    data: user,
   })
 })
 

@@ -1,29 +1,26 @@
 import { Router, type Request, type Response } from 'express'
-import { generateAlerts } from '../../shared/mockData.js'
-import type { Alert, ApprovalStatus } from '../../shared/types.js'
+import { memoryDb } from '../db/memoryDb.js'
+import { verifyToken, filterByRegion, isRegionAccessible } from '../middleware/auth.js'
+import { approveAlert } from '../services/alertEngine.js'
+import type { Alert, AlertStatus, AlertLevel, User } from '../../shared/types.js'
 
 const router = Router()
 
-let alertsCache: Alert[] | null = null
+router.get('/', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as Request & { user: User }).user
+  const allowedCodes = filterByRegion('000000', user, memoryDb)
 
-function getAlerts(): Alert[] {
-  if (!alertsCache) {
-    alertsCache = generateAlerts()
-  }
-  return alertsCache
-}
+  const status = req.query.status as AlertStatus | undefined
+  const level = req.query.level as string | undefined
 
-router.get('/', async (req: Request, res: Response): Promise<void> => {
-  const alerts = getAlerts()
-  const status = req.query.status as string
-  const level = req.query.level as string
+  let filtered = memoryDb.alerts.filter((a) => allowedCodes.includes(a.regionCode))
 
-  let filtered = alerts
   if (status) {
     filtered = filtered.filter((a) => a.status === status)
   }
   if (level) {
-    filtered = filtered.filter((a) => a.level === parseInt(level, 10))
+    const lvl = parseInt(level, 10) as AlertLevel
+    filtered = filtered.filter((a) => a.level === lvl)
   }
 
   res.json({
@@ -32,14 +29,22 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   })
 })
 
-router.get('/:id', async (req: Request, res: Response): Promise<void> => {
-  const alerts = getAlerts()
-  const alert = alerts.find((a) => a.id === req.params.id)
+router.get('/:id', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as Request & { user: User }).user
+  const alert = memoryDb.alerts.find((a) => a.id === req.params.id)
 
   if (!alert) {
     res.status(404).json({
       success: false,
       error: '预警不存在',
+    })
+    return
+  }
+
+  if (!isRegionAccessible(alert.regionCode, user, memoryDb)) {
+    res.status(403).json({
+      success: false,
+      error: '权限不足，无法访问该预警',
     })
     return
   }
@@ -50,9 +55,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   })
 })
 
-router.post('/:id/approve', async (req: Request, res: Response): Promise<void> => {
-  const alerts = getAlerts()
-  const alert = alerts.find((a) => a.id === req.params.id)
+router.post('/:id/approve', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as Request & { user: User }).user
+  const alert = memoryDb.alerts.find((a) => a.id === req.params.id)
 
   if (!alert) {
     res.status(404).json({
@@ -62,59 +67,47 @@ router.post('/:id/approve', async (req: Request, res: Response): Promise<void> =
     return
   }
 
-  const { action, comment } = req.body
-  const validActions: ApprovalStatus[] = ['pending_station', 'pending_manager', 'pending_bureau', 'approved', 'rejected']
+  if (!isRegionAccessible(alert.regionCode, user, memoryDb)) {
+    res.status(403).json({
+      success: false,
+      error: '权限不足，无法审批该预警',
+    })
+    return
+  }
 
-  if (action && !validActions.includes(action)) {
+  const { step, approved, comment } = req.body
+
+  if (!step || typeof approved === 'undefined') {
     res.status(400).json({
       success: false,
-      error: '无效的审批操作',
+      error: '缺少必要参数：step 和 approved',
     })
     return
   }
 
-  if (action) {
-    alert.approvalStatus = action
-  }
-
-  if (action === 'approved') {
-    alert.status = 'resolved'
-  } else if (action === 'rejected') {
-    alert.status = 'escalated'
-  }
-
-  res.json({
-    success: true,
-    data: alert,
-    message: comment ? `审批已提交：${comment}` : '审批已提交',
-  })
-})
-
-router.post('/:id/escalate', async (req: Request, res: Response): Promise<void> => {
-  const alerts = getAlerts()
-  const alert = alerts.find((a) => a.id === req.params.id)
-
-  if (!alert) {
-    res.status(404).json({
+  const validSteps = ['station', 'manager', 'bureau'] as const
+  if (!validSteps.includes(step)) {
+    res.status(400).json({
       success: false,
-      error: '预警不存在',
+      error: '无效的审批阶段，必须是 station、manager 或 bureau',
     })
     return
   }
 
-  alert.status = 'escalated'
-  alert.escalatedAt = new Date().toISOString()
+  const result = approveAlert(memoryDb, req.params.id, step, !!approved, comment, user.id)
 
-  if (!alert.approvalStatus || alert.approvalStatus === 'pending_station') {
-    alert.approvalStatus = 'pending_manager'
-  } else if (alert.approvalStatus === 'pending_manager') {
-    alert.approvalStatus = 'pending_bureau'
+  if (!result) {
+    res.status(400).json({
+      success: false,
+      error: '审批失败',
+    })
+    return
   }
 
   res.json({
     success: true,
-    data: alert,
-    message: '已升级预警',
+    data: result,
+    message: comment ? `审批已提交：${comment}` : '审批已提交',
   })
 })
 
